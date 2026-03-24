@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WoonInvest — Buurt & Incasso Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#0d2a5e;--navy2:#1a3f7a;--navy3:#e8edf5;
+  --lime:#c8d400;--lime2:#a8b200;--lime3:#f4f8a0;
+  --pom:#3aaa35;--pom2:#d6f0d5;
+  --danger:#c0390b;--danger2:#fce9e3;
+  --warn:#d08000;--warn2:#fef3d0;
+  --bg:#f4f3ef;--bg2:#eceae4;--white:#fff;
+  --text:#111;--text2:#444;--text3:#777;
+  --border:#dddbd4;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;overflow:hidden}
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+
+/* topbar */
+.topbar{background:var(--navy);display:flex;align-items:center;justify-content:space-between;padding:0 20px;height:52px;flex-shrink:0;z-index:1000}
+.brand{font-family:'Syne',sans-serif;font-weight:800;font-size:17px;color:#fff}
+.brand span{color:var(--lime)}
+.brand-sub{font-size:11px;color:rgba(255,255,255,0.4);border-left:1px solid rgba(255,255,255,0.15);padding-left:12px;margin-left:12px}
+.pills{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.pill{font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.pill.ok{background:rgba(200,212,0,0.22);color:var(--lime)}
+.pill.err{background:rgba(192,57,11,0.3);color:#ff9070}
+.pill.loading{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.5)}
+.pill.warn{background:rgba(208,128,0,0.25);color:#ffc94a}
+
+/* layout */
+.main{display:grid;grid-template-columns:310px 1fr;overflow:hidden}
+.sidebar{background:var(--white);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;font-size:13px}
+.map-area{position:relative}
+#map{width:100%;height:100%}
+
+/* sidebar sections */
+.ss{padding:13px 14px;border-bottom:1px solid var(--border)}
+.ss:last-child{border-bottom:none}
+.slbl{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.13em;color:var(--text3);margin-bottom:9px;display:flex;align-items:center;gap:7px}
+.slbl::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* metrics */
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.metric{background:var(--bg);border-radius:9px;padding:9px 11px}
+.mv{font-family:'Syne',sans-serif;font-weight:800;font-size:19px;color:var(--navy);line-height:1}
+.mv.g{color:var(--pom)} .mv.o{color:var(--warn)} .mv.r{color:var(--danger)}
+.ml{font-size:10px;color:var(--text3);margin-top:2px;line-height:1.3}
+.msrc{font-size:9px;color:var(--text3);opacity:0.6;margin-top:1px}
+
+/* mode buttons */
+.mbtns{display:flex;flex-wrap:wrap;gap:5px}
+.mbtn{padding:5px 11px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:7px;transition:all 0.12s;white-space:nowrap}
+.mbtn:hover{background:var(--navy3)}
+.mbtn.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.mbtn:disabled{opacity:0.35;cursor:not-allowed}
+
+/* buurt list */
+.blist{list-style:none}
+.bi{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:7px;cursor:pointer;border:1.5px solid transparent;transition:background 0.12s}
+.bi:hover{background:var(--bg)}
+.bi.active{background:var(--navy3);border-color:var(--navy2)}
+.bdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.bname{flex:1;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bsub{font-size:10px;color:var(--text3)}
+.bsc{font-family:'Syne',sans-serif;font-weight:700;font-size:10px;padding:2px 6px;border-radius:8px;white-space:nowrap}
+
+/* upload */
+.upzone{border:2px dashed var(--border);border-radius:9px;padding:14px;text-align:center;cursor:pointer;transition:all 0.18s}
+.upzone:hover,.upzone.drag{border-color:var(--lime2);background:var(--lime3)}
+.upzone input{display:none}
+.upzone strong{font-size:12px;color:var(--navy)}
+.upzone p{font-size:10px;color:var(--text3);margin-top:3px;line-height:1.4}
+
+/* incasso table */
+.itable{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+.itable th{background:var(--bg);padding:4px 7px;text-align:left;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border)}
+.itable td{padding:4px 7px;border-bottom:1px solid var(--border)}
+.itable tr:last-child td{border-bottom:none}
+.rp{padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700}
+.rh{background:var(--danger2);color:var(--danger)}
+.rm{background:var(--warn2);color:var(--warn)}
+.rl{background:var(--pom2);color:var(--pom)}
+
+/* data sources panel */
+.src-list{list-style:none}
+.src-item{display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px}
+.src-item:last-child{border-bottom:none}
+.src-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:3px}
+.src-dot.ok{background:var(--pom)}
+.src-dot.err{background:var(--danger)}
+.src-dot.loading{background:var(--warn);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.src-name{font-weight:600;color:var(--text)}
+.src-meta{color:var(--text3);font-size:10px;margin-top:1px}
+
+/* map overlays */
+.moverlay{position:absolute;z-index:800;background:var(--white);border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1)}
+.legend{bottom:18px;left:12px;padding:10px 13px;min-width:148px}
+.ltitle{font-family:'Syne',sans-serif;font-weight:700;font-size:10px;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.07em}
+.lrow{display:flex;align-items:center;gap:6px;margin-bottom:3px;font-size:11px}
+.lsw{width:11px;height:11px;border-radius:2px;flex-shrink:0}
+.infobox{top:12px;left:50%;transform:translateX(-50%);padding:10px 14px;min-width:200px;max-width:250px}
+.infobox h4{font-family:'Syne',sans-serif;font-weight:700;font-size:12px;margin-bottom:7px;color:var(--navy)}
+.irow{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--border)}
+.irow:last-child{border-bottom:none}
+.ival{font-weight:600;color:var(--navy2)}
+.isrc{font-size:9px;color:var(--text3);font-style:italic}
+.chart-panel{bottom:18px;right:12px;width:270px;padding:12px}
+.chart-panel h4{font-family:'Syne',sans-serif;font-size:10px;font-weight:700;color:var(--text2);margin-bottom:7px;text-transform:uppercase;letter-spacing:0.08em}
+
+/* no-data state */
+.no-data{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:32px;color:var(--text3)}
+.no-data-icon{font-size:40px;margin-bottom:12px;opacity:0.4}
+.no-data h3{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text2);margin-bottom:8px}
+.no-data p{font-size:12px;line-height:1.6;max-width:240px}
+.no-data code{background:var(--bg2);padding:2px 6px;border-radius:4px;font-size:11px}
+
+/* cors warning */
+.cors-banner{background:var(--warn2);border:1px solid #e8c060;border-radius:8px;padding:10px 12px;font-size:11px;color:#6b4a00;margin-bottom:10px;line-height:1.5;display:none}
+.cors-banner strong{display:block;margin-bottom:3px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div style="display:flex;align-items:center">
+    <div class="brand">Woon<span>Invest</span></div>
+    <div class="brand-sub">Buurt & Incasso Dashboard — Leidschendam-Voorburg</div>
+  </div>
+  <div class="pills" id="status-pills">
+    <span class="pill loading" id="p-cbs">⏳ CBS...</span>
+    <span class="pill loading" id="p-geo">⏳ Kaart...</span>
+    <span class="pill loading" id="p-lbm">⏳ Leefbaarometer...</span>
+    <span class="pill loading" id="p-pol">⏳ Politie...</span>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+
+  <div class="ss">
+    <div class="slbl">Gemeente overzicht</div>
+    <div id="cors-warning" class="cors-banner">
+      <strong>⚠ Safari + lokaal bestand</strong>
+      Open dit bestand in <strong>Chrome of Firefox</strong>, of zet het online (GitHub Pages) voor live API-data. Safari blokkeert cross-origin requests vanuit file://.
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="mv" id="m-inw">—</div>
+        <div class="ml">Inwoners totaal</div>
+        <div class="msrc" id="src-inw">—</div>
+      </div>
+      <div class="metric">
+        <div class="mv g" id="m-huur">—</div>
+        <div class="ml">Corp. huurwoningen</div>
+        <div class="msrc" id="src-huur">—</div>
+      </div>
+      <div class="metric">
+        <div class="mv o" id="m-uitk">—</div>
+        <div class="ml">Gem. uitkeringen %</div>
+        <div class="msrc" id="src-uitk">—</div>
+      </div>
+      <div class="metric">
+        <div class="mv r" id="m-ink">—</div>
+        <div class="ml">Gem. inkomen x€1k</div>
+        <div class="msrc" id="src-ink">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ss">
+    <div class="slbl">Kaartlaag</div>
+    <div class="mbtns">
+      <button class="mbtn active" id="b-uitkering" onclick="setMode('uitkering')">Uitkeringen</button>
+      <button class="mbtn" id="b-inkomen" onclick="setMode('inkomen')">Inkomen</button>
+      <button class="mbtn" id="b-huur" onclick="setMode('huur')">Corp. huur</button>
+      <button class="mbtn" id="b-lbm" onclick="setMode('lbm')" disabled>Leefbaarheid</button>
+      <button class="mbtn" id="b-overlast" onclick="setMode('overlast')" disabled>Overlast</button>
+      <button class="mbtn" id="b-incasso" onclick="setMode('incasso')">Incasso</button>
+    </div>
+  </div>
+
+  <div class="ss" style="flex:1;overflow-y:auto;min-height:0">
+    <div class="slbl">Buurten</div>
+    <ul class="blist" id="buurt-list">
+      <li style="padding:8px;font-size:11px;color:var(--text3)">Data wordt geladen...</li>
+    </ul>
+  </div>
+
+  <div class="ss">
+    <div class="slbl">Incasso data uploaden</div>
+    <div class="upzone" id="upzone"
+      onclick="document.getElementById('csvinput').click()"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleDrop(event)">
+      <input type="file" id="csvinput" accept=".csv" onchange="handleCSV(event)">
+      <strong>📂 CSV uploaden</strong>
+      <p>buurtcode, aantal_dossiers, totaal_schuld</p>
+    </div>
+    <div id="itableWrap" style="display:none">
+      <table class="itable" id="itable"></table>
+    </div>
+  </div>
+
+  <div class="ss">
+    <div class="slbl">Databronnen & actualiteit</div>
+    <ul class="src-list" id="src-list">
+      <li class="src-item"><div class="src-dot loading"></div><div><div class="src-name">Laden...</div></div></li>
+    </ul>
+  </div>
+
+</div>
+
+<!-- MAP -->
+<div class="map-area">
+  <div id="map"></div>
+
+  <div class="moverlay legend" id="legend">
+    <div class="ltitle" id="ltitle">Uitkeringen (%)</div>
+    <div id="litems"></div>
+    <div id="lsrc" style="font-size:9px;color:var(--text3);margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"></div>
+  </div>
+
+  <div class="moverlay infobox" id="infobox" style="display:none">
+    <h4 id="iname">—</h4>
+    <div id="irows"></div>
+  </div>
+
+  <div class="moverlay chart-panel">
+    <h4 id="ctitle">Top 5 buurten</h4>
+    <canvas id="bchart" height="150"></canvas>
+  </div>
+</div>
+
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let map, geoLayer;
+let cbsData = {};        // buurtcode -> CBS row
+let cbsFields = {};      // discovered field names
+let lbmData = {};        // buurtcode -> leefbaarheidsscore
+let politieData = {};    // buurtcode -> overlast count
+let incassoData = {};
+let geojsonFeatures = [];
+let currentMode = 'uitkering';
+let barChart;
+const GM_CODE = '0546';
+const SOURCES = {
+  cbs:  { name: 'CBS Kerncijfers Wijken & Buurten 2025', table: '86165NED', peiljaar: '2025', status: 'loading', url: 'https://opendata.cbs.nl/ODataApi/odata/86165NED' },
+  geo:  { name: 'PDOK Wijk- en Buurtkaart', peiljaar: '2024', status: 'loading', url: 'https://service.pdok.nl/cbs/wijkenbuurten/2024/wfs/v1_0' },
+  lbm:  { name: 'Leefbaarometer', peiljaar: '2022 (nieuwste open data)', status: 'loading', url: 'https://geo.leefbaarometer.nl/lbm3/ows' },
+  pol:  { name: 'Politie Overlast per buurt', peiljaar: '2025 (maandelijks)', status: 'loading', url: 'https://politieopendata.cbs.nl/ODataApi/odata/47022NED' },
+};
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', async () => {
+  initMap();
+  detectCORS();
+  renderSourceList();
+  await Promise.all([loadCBS(), loadGeo(), loadLeefbaarometer(), loadPolitie()]);
+  renderBuurtList();
+  renderChart();
+  renderLegend();
+  updateMetrics();
+});
+
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([52.079, 4.393], 13);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CartoDB', maxZoom: 19
+  }).addTo(map);
+}
+
+function detectCORS() {
+  // Warn if running from file:// protocol (Safari blocks cross-origin)
+  if (window.location.protocol === 'file:') {
+    document.getElementById('cors-warning').style.display = 'block';
+  }
+}
+
+// ══════════════════════════════════════════
+// CBS — 86165NED (2025, meest recent)
+// First discover field names via DataProperties
+// ══════════════════════════════════════════
+async function loadCBS() {
+  setSource('cbs', 'loading');
+  try {
+    // Step 1: discover field names
+    const metaRes = await fetch(
+      'https://opendata.cbs.nl/ODataApi/odata/86165NED/DataProperties?$format=json&$select=Key,Title,Type'
+    );
+    if (!metaRes.ok) throw new Error('metadata ' + metaRes.status);
+    const meta = await metaRes.json();
+    const props = meta.value || [];
+
+    // Map key fields by searching titles
+    const find = (keywords) => {
+      const kw = keywords.map(k => k.toLowerCase());
+      return props.find(p => kw.some(k => (p.Title||'').toLowerCase().includes(k)))?.Key || null;
+    };
+
+    cbsFields = {
+      inwoners:   find(['aantal inwoners','bewoners']),
+      inkomen:    find(['gemiddeld inkomen per inwoner','gemiddeld persoonlijk inkomen']),
+      laagiink:   find(['40% personen met laagste','laagste persoonlijk inkomen']),
+      uitkering:  find(['personen met een uitkering','totaal uitkering']),
+      huurcorp:   find(['huurwoningen in bezit van een woningco','corporatiewoningen']),
+      armoede:    find(['personen in armoede','armoedegrens']),
+    };
+
+    // Step 2: fetch data for gemeente 0546 buurten
+    const fields = ['WijkenEnBuurten','Codering_3', ...Object.values(cbsFields).filter(Boolean)].join(',');
+    const dataRes = await fetch(
+      `https://opendata.cbs.nl/ODataApi/odata/86165NED/TypedDataSet?` +
+      `%24filter=startswith(Codering_3,'BU${GM_CODE}')&%24format=json&%24select=${fields}&%24top=150`
+    );
+    if (!dataRes.ok) throw new Error('data ' + dataRes.status);
+    const data = await dataRes.json();
+
+    (data.value || []).forEach(row => {
+      const code = (row.Codering_3 || '').trim();
+      if (code) cbsData[code] = row;
+    });
+
+    const n = Object.keys(cbsData).length;
+    if (n === 0) throw new Error('geen buurten gevonden');
+
+    setSource('cbs', 'ok', `${n} buurten geladen`);
+    updatePill('p-cbs', 'ok', `✓ CBS 2025 (${n} buurten)`);
+  } catch(e) {
+    setSource('cbs', 'err', e.message);
+    updatePill('p-cbs', 'err', `✗ CBS: ${e.message.slice(0,30)}`);
+    console.warn('CBS failed:', e);
+  }
+  updateMetrics();
+}
+
+function getCBS(code, field) {
+  if (!field || !cbsData[code]) return null;
+  const v = cbsData[code][field];
+  if (v == null || v === -99999997 || v === -99999996 || v === -99999995) return null;
+  return Number(v);
+}
+
+// ══════════════════════════════════════════
+// GEO — PDOK WFS 2024
+// ══════════════════════════════════════════
+async function loadGeo() {
+  setSource('geo', 'loading');
+  try {
+    const url = `https://service.pdok.nl/cbs/wijkenbuurten/2024/wfs/v1_0?` +
+      `service=WFS&version=2.0.0&request=GetFeature&typeName=buurten` +
+      `&outputFormat=application%2Fjson&CQL_FILTER=gemeentecode%3D%27${GM_CODE}%27&count=200`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status);
+    const geo = await res.json();
+    geojsonFeatures = geo.features || [];
+    if (!geojsonFeatures.length) throw new Error('geen features');
+
+    renderGeoLayer();
+    setSource('geo', 'ok', `${geojsonFeatures.length} buurtgrenzen`);
+    updatePill('p-geo', 'ok', `✓ Kaart 2024`);
+
+    try { map.fitBounds(geoLayer.getBounds(), { padding: [20,20] }); } catch(e){}
+  } catch(e) {
+    setSource('geo', 'err', e.message);
+    updatePill('p-geo', 'err', `✗ Kaart: gebruik Chrome`);
+    document.getElementById('map').innerHTML += `
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+        background:white;border-radius:12px;padding:24px 32px;text-align:center;z-index:900;
+        border:1px solid #dddbd4;box-shadow:0 4px 20px rgba(0,0,0,0.1);max-width:300px">
+        <div style="font-size:28px;margin-bottom:10px">🗺️</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:#0d2a5e;margin-bottom:8px">
+          Kaartgrenzen niet beschikbaar
+        </div>
+        <div style="font-size:12px;color:#777;line-height:1.6">
+          Safari blokkeert de PDOK API vanuit een lokaal bestand.<br><br>
+          <strong>Oplossing:</strong> Open dit bestand in <strong>Chrome of Firefox</strong>, of zet het online.
+        </div>
+      </div>`;
+    console.warn('PDOK failed:', e);
+  }
+}
+
+function renderGeoLayer() {
+  if (geoLayer) geoLayer.remove();
+  if (!geojsonFeatures.length) return;
+
+  geoLayer = L.geoJSON({ type:'FeatureCollection', features: geojsonFeatures }, {
+    style: f => ({
+      fillColor: getColor(currentMode, (f.properties.buurtcode||'').trim()),
+      fillOpacity: 0.68,
+      color: '#ffffff',
+      weight: 1.5
+    }),
+    onEachFeature: (f, layer) => {
+      const code = (f.properties.buurtcode||'').trim();
+      const naam = f.properties.buurtnaam || code;
+      layer.on('click', () => showInfo(code, naam));
+      layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.9, weight: 2.5 }));
+      layer.on('mouseout', () => layer.setStyle({ fillOpacity: 0.68, weight: 1.5 }));
+    }
+  }).addTo(map);
+}
+
+// ══════════════════════════════════════════
+// LEEFBAAROMETER — WFS (meting 2022, meest recente open data)
+// ══════════════════════════════════════════
+async function loadLeefbaarometer() {
+  setSource('lbm', 'loading');
+  try {
+    const url = `https://geo.leefbaarometer.nl/lbm3/ows?service=WFS&version=1.0.0` +
+      `&request=GetFeature&typeName=lbm3:lbm3_buurtscore_2022` +
+      `&outputFormat=application%2Fjson` +
+      `&CQL_FILTER=gm_code%3D'GM${GM_CODE}'&maxFeatures=200`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status);
+    const geo = await res.json();
+    const features = geo.features || [];
+    if (!features.length) throw new Error('geen data');
+
+    features.forEach(f => {
+      const p = f.properties || {};
+      // field: lbm_score or score_lbm
+      const code = 'BU' + (p.bu_code || p.buurtcode || '').replace(/^BU/,'');
+      const score = p.lbm3_score ?? p.lbm_score ?? p.score ?? null;
+      if (code && score !== null) lbmData[code] = Number(score);
+    });
+
+    const n = Object.keys(lbmData).length;
+    if (n === 0) throw new Error('scores niet gevonden in response');
+
+    setSource('lbm', 'ok', `${n} buurtscores (meting 2022)`);
+    updatePill('p-lbm', 'warn', `✓ Leefbaarometer 2022`);
+    document.getElementById('b-lbm').disabled = false;
+    document.getElementById('b-lbm').title = 'Leefbaarometer meting 2022 (meest recente open data)';
+  } catch(e) {
+    setSource('lbm', 'err', e.message);
+    updatePill('p-lbm', 'err', `✗ Leefbaarometer`);
+    console.warn('Leefbaarometer failed:', e);
+  }
+}
+
+// ══════════════════════════════════════════
+// POLITIE — Overlast per buurt (tabel 47022NED)
+// ══════════════════════════════════════════
+async function loadPolitie() {
+  setSource('pol', 'loading');
+  try {
+    // Get all overlast for Leidschendam-Voorburg buurten, most recent year
+    const url = `https://politieopendata.cbs.nl/ODataApi/odata/47022NED/TypedDataSet?` +
+      `%24filter=startswith(WijkenEnBuurten,'BU${GM_CODE}')` +
+      `%20and%20Perioden%20eq%20'2024JJ00'` +
+      `&%24format=json` +
+      `&%24select=WijkenEnBuurten,SoortOverlast,GeregistreerdeOverlast_1` +
+      `&%24top=500`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    const rows = data.value || [];
+
+    // Aggregate all overlast types per buurt
+    rows.forEach(r => {
+      const code = (r.WijkenEnBuurten||'').trim();
+      const val = r.GeregistreerdeOverlast_1;
+      if (!code || val == null || val < 0) return;
+      politieData[code] = (politieData[code] || 0) + Number(val);
+    });
+
+    const n = Object.keys(politieData).length;
+    if (n === 0) throw new Error('geen overlastdata voor 2024');
+
+    setSource('pol', 'ok', `${n} buurten (overlast 2024)`);
+    updatePill('p-pol', 'ok', `✓ Politie 2024`);
+    document.getElementById('b-overlast').disabled = false;
+  } catch(e) {
+    // Fallback: try without year filter (latest available)
+    try {
+      const url2 = `https://politieopendata.cbs.nl/ODataApi/odata/47022NED/TypedDataSet?` +
+        `%24filter=startswith(WijkenEnBuurten,'BU${GM_CODE}')` +
+        `&%24format=json` +
+        `&%24select=WijkenEnBuurten,Perioden,SoortOverlast,GeregistreerdeOverlast_1` +
+        `&%24orderby=Perioden%20desc&%24top=500`;
+      const res2 = await fetch(url2);
+      if (!res2.ok) throw new Error(res2.status);
+      const data2 = await res2.json();
+      const rows2 = data2.value || [];
+
+      // Find most recent period with data
+      const periods = [...new Set(rows2.map(r => r.Perioden))].sort().reverse();
+      const latestPeriod = periods[0];
+      if (!latestPeriod) throw new Error('geen perioden');
+
+      rows2.filter(r => r.Perioden === latestPeriod).forEach(r => {
+        const code = (r.WijkenEnBuurten||'').trim();
+        const val = r.GeregistreerdeOverlast_1;
+        if (!code || val == null || val < 0) return;
+        politieData[code] = (politieData[code] || 0) + Number(val);
+      });
+
+      const n2 = Object.keys(politieData).length;
+      if (n2 === 0) throw new Error('leeg resultaat');
+
+      setSource('pol', 'ok', `${n2} buurten (overlast ${latestPeriod})`);
+      updatePill('p-pol', 'ok', `✓ Politie ${latestPeriod}`);
+      document.getElementById('b-overlast').disabled = false;
+    } catch(e2) {
+      setSource('pol', 'err', e2.message);
+      updatePill('p-pol', 'err', `✗ Politie`);
+      console.warn('Politie failed:', e2);
+    }
+  }
+}
+
+// ══════════════════════════════════════════
+// COLORING
+// ══════════════════════════════════════════
+function getColor(mode, code) {
+  if (mode === 'uitkering') {
+    const v = getCBS(code, cbsFields.uitkering);
+    if (v === null) return '#cccccc';
+    if (v > 15) return '#c0390b';
+    if (v > 10) return '#e8a000';
+    if (v > 6)  return '#c8d400';
+    return '#3aaa35';
+  }
+  if (mode === 'inkomen') {
+    const v = getCBS(code, cbsFields.inkomen);
+    if (v === null) return '#cccccc';
+    if (v < 20) return '#c0390b';
+    if (v < 28) return '#e8a000';
+    if (v < 36) return '#c8d400';
+    return '#3aaa35';
+  }
+  if (mode === 'huur') {
+    const v = getCBS(code, cbsFields.huurcorp);
+    if (v === null) return '#cccccc';
+    if (v > 60) return '#0d2a5e';
+    if (v > 35) return '#1a3f7a';
+    if (v > 15) return '#5b7fc4';
+    return '#b8cbf0';
+  }
+  if (mode === 'lbm') {
+    const v = lbmData[code];
+    if (v === undefined) return '#cccccc';
+    // Leefbaarometer: higher = better
+    if (v > 2)    return '#3aaa35';
+    if (v > 0.5)  return '#c8d400';
+    if (v > -0.5) return '#e8a000';
+    return '#c0390b';
+  }
+  if (mode === 'overlast') {
+    const v = politieData[code];
+    if (v === undefined) return '#cccccc';
+    if (v > 200) return '#c0390b';
+    if (v > 80)  return '#e8a000';
+    if (v > 30)  return '#c8d400';
+    return '#3aaa35';
+  }
+  if (mode === 'incasso') {
+    const d = incassoData[code];
+    if (!d) return '#cccccc';
+    if (d.dossiers > 35) return '#c0390b';
+    if (d.dossiers > 20) return '#e8a000';
+    return '#3aaa35';
+  }
+  return '#cccccc';
+}
+
+// ══════════════════════════════════════════
+// INFO POPUP
+// ══════════════════════════════════════════
+function showInfo(code, naam) {
+  document.getElementById('iname').textContent = naam;
+
+  const fmt = (v, suf='') => v !== null ? (Math.round(v*10)/10) + suf : '—';
+  const rows = [];
+
+  if (cbsFields.inwoners)  rows.push(['Inwoners', fmt(getCBS(code, cbsFields.inwoners)), 'CBS 2025']);
+  if (cbsFields.inkomen)   rows.push(['Gem. inkomen', '€'+fmt(getCBS(code, cbsFields.inkomen))+'k', 'CBS 2025']);
+  if (cbsFields.uitkering) rows.push(['Uitkering', fmt(getCBS(code, cbsFields.uitkering), '%'), 'CBS 2025']);
+  if (cbsFields.huurcorp)  rows.push(['Corp. huur', fmt(getCBS(code, cbsFields.huurcorp), '%'), 'CBS 2025']);
+  if (cbsFields.armoede)   rows.push(['In armoede', fmt(getCBS(code, cbsFields.armoede), '%'), 'CBS 2025']);
+
+  if (lbmData[code] !== undefined)
+    rows.push(['Leefbaarheid score', fmt(lbmData[code]), 'Leefbaarometer 2022']);
+  if (politieData[code] !== undefined)
+    rows.push(['Overlast incidenten', fmt(politieData[code]), 'Politie 2024']);
+
+  const inc = incassoData[code];
+  if (inc) {
+    rows.push(['Incasso dossiers', inc.dossiers, 'Upload']);
+    rows.push(['Totale schuld', '€'+inc.schuld.toLocaleString('nl-NL'), 'Upload']);
+  }
+
+  if (!rows.length) {
+    document.getElementById('irows').innerHTML =
+      '<div style="font-size:11px;color:var(--text3);padding:4px 0">Geen data beschikbaar voor deze buurt</div>';
+  } else {
+    document.getElementById('irows').innerHTML = rows.map(([k,v,src]) =>
+      `<div class="irow">
+        <span>${k}<br><span class="isrc">${src}</span></span>
+        <span class="ival">${v}</span>
+      </div>`
+    ).join('');
+  }
+
+  document.getElementById('infobox').style.display = 'block';
+
+  // highlight list item
+  document.querySelectorAll('.bi').forEach(el => el.classList.remove('active'));
+  const li = document.querySelector(`.bi[data-code="${code}"]`);
+  if (li) { li.classList.add('active'); li.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
+}
+
+// ══════════════════════════════════════════
+// BUURT LIST
+// ══════════════════════════════════════════
+function renderBuurtList() {
+  const codes = [
+    ...new Set([
+      ...Object.keys(cbsData),
+      ...Object.keys(lbmData),
+      ...Object.keys(politieData),
+      ...geojsonFeatures.map(f => (f.properties?.buurtcode||'').trim()).filter(Boolean)
+    ])
+  ].filter(c => c.startsWith('BU' + GM_CODE));
+
+  if (!codes.length) {
+    document.getElementById('buurt-list').innerHTML =
+      '<li style="padding:8px;font-size:11px;color:var(--text3)">Geen buurten geladen — check internetverbinding</li>';
+    return;
+  }
+
+  const fieldMap = {
+    uitkering: cbsFields.uitkering,
+    inkomen:   cbsFields.inkomen,
+    huur:      cbsFields.huurcorp,
+    lbm:       null,
+    overlast:  null,
+    incasso:   null
+  };
+
+  const getName = code => {
+    const f = geojsonFeatures.find(x => (x.properties?.buurtcode||'').trim() === code);
+    return f?.properties?.buurtnaam || cbsData[code]?.WijkenEnBuurten?.trim() || code;
+  };
+
+  const sorted = [...codes].sort((a, b) => {
+    if (currentMode === 'lbm')      return (lbmData[b]||0) - (lbmData[a]||0);
+    if (currentMode === 'overlast') return (politieData[b]||0) - (politieData[a]||0);
+    if (currentMode === 'incasso')  return (incassoData[b]?.dossiers||0) - (incassoData[a]?.dossiers||0);
+    const field = fieldMap[currentMode];
+    const va = field ? (getCBS(a, field) ?? 0) : 0;
+    const vb = field ? (getCBS(b, field) ?? 0) : 0;
+    return currentMode === 'inkomen' ? va - vb : vb - va;
+  });
+
+  document.getElementById('buurt-list').innerHTML = sorted.map(code => {
+    const color = getColor(currentMode, code);
+    const naam = getName(code);
+
+    let scoreLabel = '—';
+    if (currentMode === 'uitkering' && cbsFields.uitkering) {
+      const v = getCBS(code, cbsFields.uitkering);
+      scoreLabel = v !== null ? Math.round(v)+'%' : '—';
+    } else if (currentMode === 'inkomen' && cbsFields.inkomen) {
+      const v = getCBS(code, cbsFields.inkomen);
+      scoreLabel = v !== null ? '€'+Math.round(v)+'k' : '—';
+    } else if (currentMode === 'huur' && cbsFields.huurcorp) {
+      const v = getCBS(code, cbsFields.huurcorp);
+      scoreLabel = v !== null ? Math.round(v)+'%' : '—';
+    } else if (currentMode === 'lbm') {
+      const v = lbmData[code];
+      scoreLabel = v !== undefined ? v.toFixed(1) : '—';
+    } else if (currentMode === 'overlast') {
+      const v = politieData[code];
+      scoreLabel = v !== undefined ? Math.round(v)+' inc.' : '—';
+    } else if (currentMode === 'incasso') {
+      scoreLabel = incassoData[code] ? incassoData[code].dossiers+' dos.' : '—';
+    }
+
+    const inw = getCBS(code, cbsFields.inwoners);
+    return `<li class="bi" data-code="${code}" onclick="focusBuurt('${code}')">
+      <div class="bdot" style="background:${color}"></div>
+      <div style="flex:1;min-width:0">
+        <div class="bname">${naam}</div>
+        <div class="bsub">${inw !== null ? Math.round(inw).toLocaleString('nl-NL')+' inw.' : ''}</div>
+      </div>
+      <div class="bsc" style="background:${color}22;color:${color==='#cccccc'?'#777':color}">${scoreLabel}</div>
+    </li>`;
+  }).join('');
+}
+
+function focusBuurt(code) {
+  const f = geojsonFeatures.find(x => (x.properties?.buurtcode||'').trim() === code);
+  const naam = f?.properties?.buurtnaam || cbsData[code]?.WijkenEnBuurten?.trim() || code;
+  showInfo(code, naam);
+  if (f && geoLayer) {
+    try {
+      geoLayer.eachLayer(l => {
+        if ((l.feature?.properties?.buurtcode||'').trim() === code) {
+          map.fitBounds(l.getBounds(), { padding:[40,40] });
+          l.setStyle({ fillOpacity:0.92, weight:3 });
+        }
+      });
+    } catch(e){}
+  }
+}
+
+// ══════════════════════════════════════════
+// METRICS
+// ══════════════════════════════════════════
+function updateMetrics() {
+  const hasCBS = Object.keys(cbsData).length > 0;
+
+  const avg = field => {
+    if (!field) return null;
+    const vals = Object.keys(cbsData).map(c => getCBS(c, field)).filter(v => v !== null);
+    return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+  };
+  const sum = field => {
+    if (!field) return null;
+    const vals = Object.keys(cbsData).map(c => getCBS(c, field)).filter(v => v !== null);
+    return vals.length ? vals.reduce((a,b)=>a+b,0) : null;
+  };
+
+  const src = hasCBS ? 'CBS 2025' : 'geen data';
+
+  const inw  = sum(cbsFields.inwoners);
+  const huur = sum(cbsFields.huurcorp);
+  const uitk = avg(cbsFields.uitkering);
+  const ink  = avg(cbsFields.inkomen);
+
+  document.getElementById('m-inw').textContent  = inw  !== null ? Math.round(inw).toLocaleString('nl-NL') : '—';
+  document.getElementById('m-huur').textContent = huur !== null ? Math.round(huur).toLocaleString('nl-NL') : '—';
+  document.getElementById('m-uitk').textContent = uitk !== null ? (Math.round(uitk*10)/10)+'%' : '—';
+  document.getElementById('m-ink').textContent  = ink  !== null ? '€'+Math.round(ink)+'k' : '—';
+
+  ['src-inw','src-huur','src-uitk','src-ink'].forEach(id =>
+    document.getElementById(id).textContent = src);
+}
+
+// ══════════════════════════════════════════
+// CHART
+// ══════════════════════════════════════════
+function renderChart() {
+  const allCodes = [...new Set([...Object.keys(cbsData), ...Object.keys(lbmData), ...Object.keys(politieData)])];
+
+  let entries = [], label = '';
+
+  if (currentMode === 'lbm') {
+    label = 'Leefbaarheid score';
+    entries = Object.entries(lbmData)
+      .sort((a,b)=>b[1]-a[1]).slice(0,5)
+      .map(([code,v]) => ({ code, val: Math.round(v*10)/10 }));
+  } else if (currentMode === 'overlast') {
+    label = 'Overlast incidenten';
+    entries = Object.entries(politieData)
+      .sort((a,b)=>b[1]-a[1]).slice(0,5)
+      .map(([code,v]) => ({ code, val: Math.round(v) }));
+  } else if (currentMode === 'incasso') {
+    label = 'Incasso dossiers';
+    entries = Object.entries(incassoData)
+      .sort((a,b)=>b[1].dossiers-a[1].dossiers).slice(0,5)
+      .map(([code,d]) => ({ code, val: d.dossiers }));
+  } else {
+    const fieldMap = { uitkering: cbsFields.uitkering, inkomen: cbsFields.inkomen, huur: cbsFields.huurcorp };
+    const lblMap   = { uitkering: 'Uitkeringen %', inkomen: 'Inkomen x€1k', huur: 'Corp. huur %' };
+    label = lblMap[currentMode] || '';
+    const field = fieldMap[currentMode];
+    if (field) {
+      entries = allCodes
+        .map(code => ({ code, val: getCBS(code, field) }))
+        .filter(e => e.val !== null)
+        .sort((a,b) => currentMode==='inkomen' ? a.val-b.val : b.val-a.val)
+        .slice(0,5)
+        .map(e => ({ ...e, val: Math.round(e.val*10)/10 }));
+    }
+  }
+
+  const getName = code => {
+    const f = geojsonFeatures.find(x => (x.properties?.buurtcode||'').trim() === code);
+    return (f?.properties?.buurtnaam || cbsData[code]?.WijkenEnBuurten || code).trim().slice(0,18);
+  };
+
+  document.getElementById('ctitle').textContent = `Top 5 — ${label}`;
+
+  if (barChart) barChart.destroy();
+  if (!entries.length) return;
+
+  barChart = new Chart(document.getElementById('bchart'), {
+    type: 'bar',
+    data: {
+      labels: entries.map(e => getName(e.code)),
+      datasets: [{
+        data: entries.map(e => e.val),
+        backgroundColor: entries.map(e => getColor(currentMode, e.code)),
+        borderRadius: 4, borderSkipped: false
+      }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid:{ color:'#eee' }, ticks:{ font:{size:10} } },
+        y: { grid:{ display:false }, ticks:{ font:{size:10} } }
+      }
+    }
+  });
+}
+
+// ══════════════════════════════════════════
+// LEGEND
+// ══════════════════════════════════════════
+function renderLegend() {
+  const configs = {
+    uitkering: {
+      title: 'Uitkeringen (%)', src: 'CBS Kerncijfers 2025',
+      items: [{c:'#3aaa35',l:'< 6% — laag'},{c:'#c8d400',l:'6–10%'},{c:'#e8a000',l:'10–15% — verhoogd'},{c:'#c0390b',l:'> 15% — hoog'},{c:'#cccccc',l:'Geen data'}]
+    },
+    inkomen: {
+      title: 'Gem. inkomen (x€1k)', src: 'CBS Kerncijfers 2025',
+      items: [{c:'#3aaa35',l:'> €36k'},{c:'#c8d400',l:'€28–36k'},{c:'#e8a000',l:'€20–28k'},{c:'#c0390b',l:'< €20k'},{c:'#cccccc',l:'Geen data'}]
+    },
+    huur: {
+      title: 'Corporatiehuur (%)', src: 'CBS Kerncijfers 2025',
+      items: [{c:'#b8cbf0',l:'< 15%'},{c:'#5b7fc4',l:'15–35%'},{c:'#1a3f7a',l:'35–60%'},{c:'#0d2a5e',l:'> 60%'},{c:'#cccccc',l:'Geen data'}]
+    },
+    lbm: {
+      title: 'Leefbaarheidsscore', src: 'Leefbaarometer 2022',
+      items: [{c:'#3aaa35',l:'> +2 — goed'},{c:'#c8d400',l:'+0.5 tot +2'},{c:'#e8a000',l:'-0.5 tot +0.5'},{c:'#c0390b',l:'< -0.5 — laag'},{c:'#cccccc',l:'Geen data'}]
+    },
+    overlast: {
+      title: 'Overlast incidenten', src: 'Politie 2024',
+      items: [{c:'#3aaa35',l:'< 30'},{c:'#c8d400',l:'30–80'},{c:'#e8a000',l:'80–200'},{c:'#c0390b',l:'> 200'},{c:'#cccccc',l:'Geen data'}]
+    },
+    incasso: {
+      title: 'Incasso dossiers', src: 'Geüpload bestand',
+      items: [{c:'#3aaa35',l:'Laag (< 20)'},{c:'#e8a000',l:'Midden (20–35)'},{c:'#c0390b',l:'Hoog (> 35)'},{c:'#cccccc',l:'Geen data'}]
+    }
+  };
+  const cfg = configs[currentMode];
+  document.getElementById('ltitle').textContent = cfg.title;
+  document.getElementById('litems').innerHTML = cfg.items.map(i =>
+    `<div class="lrow"><div class="lsw" style="background:${i.c}"></div>${i.l}</div>`
+  ).join('');
+  document.getElementById('lsrc').textContent = 'Bron: ' + cfg.src;
+}
+
+// ══════════════════════════════════════════
+// MODE SWITCH
+// ══════════════════════════════════════════
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mbtn').forEach(b => b.classList.remove('active'));
+  document.getElementById('b-' + mode)?.classList.add('active');
+  document.getElementById('infobox').style.display = 'none';
+  if (geoLayer) renderGeoLayer();
+  renderBuurtList();
+  renderChart();
+  renderLegend();
+}
+
+// ══════════════════════════════════════════
+// SOURCE STATUS
+// ══════════════════════════════════════════
+function setSource(key, status, detail='') {
+  SOURCES[key].status = status;
+  SOURCES[key].detail = detail;
+  renderSourceList();
+}
+
+function renderSourceList() {
+  document.getElementById('src-list').innerHTML = Object.entries(SOURCES).map(([key, s]) =>
+    `<li class="src-item">
+      <div class="src-dot ${s.status}"></div>
+      <div>
+        <div class="src-name">${s.name}</div>
+        <div class="src-meta">
+          Peiljaar: <strong>${s.peiljaar}</strong>
+          ${s.detail ? ' · ' + s.detail : ''}
+          ${s.status === 'err' ? ' · <span style="color:var(--danger)">Niet bereikbaar</span>' : ''}
+        </div>
+      </div>
+    </li>`
+  ).join('');
+}
+
+function updatePill(id, cls, text) {
+  const el = document.getElementById(id);
+  if (el) { el.className = 'pill ' + cls; el.textContent = text; }
+}
+
+// ══════════════════════════════════════════
+// CSV INCASSO UPLOAD
+// ══════════════════════════════════════════
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upzone').classList.remove('drag');
+  if (e.dataTransfer.files[0]) processCSV(e.dataTransfer.files[0]);
+}
+function handleCSV(e) {
+  if (e.target.files[0]) processCSV(e.target.files[0]);
+}
+function processCSV(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    incassoData = {};
+    const rows = [];
+    e.target.result.split('\n').filter(l=>l.trim()).forEach((line, i) => {
+      const p = line.split(',').map(s=>s.trim());
+      if (i===0 && isNaN(p[1])) return;
+      if (p.length >= 3) {
+        incassoData[p[0]] = { dossiers: parseInt(p[1])||0, schuld: parseFloat(p[2])||0 };
+        rows.push({ code:p[0], dossiers: parseInt(p[1])||0, schuld: parseFloat(p[2])||0 });
+      }
+    });
+    document.getElementById('itableWrap').style.display = 'block';
+    document.getElementById('itable').innerHTML =
+      `<thead><tr><th>Code</th><th>Dossiers</th><th>Schuld</th><th></th></tr></thead>
+      <tbody>${rows.slice(0,8).map(r => {
+        const cls = r.dossiers>35?'rh':r.dossiers>20?'rm':'rl';
+        const lbl = r.dossiers>35?'Hoog':r.dossiers>20?'Midden':'Laag';
+        return `<tr><td>${r.code}</td><td>${r.dossiers}</td><td>€${Math.round(r.schuld).toLocaleString('nl-NL')}</td><td><span class="rp ${cls}">${lbl}</span></td></tr>`;
+      }).join('')}</tbody>`;
+    setMode('incasso');
+  };
+  reader.readAsText(file);
+}
+</script>
+</body>
+</html>
