@@ -230,7 +230,7 @@ const SOURCES = {
   cbs: { name:'CBS Kerncijfers Wijken & Buurten', table:CBS_TABLE, peiljaar:'2025', status:'loading', detail:'' },
   geo: { name:'PDOK Wijk- en Buurtkaart',         peiljaar:'2024', status:'loading', detail:'' },
   lbm: { name:'Leefbaarometer',                   peiljaar:'2022 (meest recente open data)', status:'loading', detail:'' },
-  pol: { name:'Politie Overlast per buurt',        peiljaar:'2024', status:'loading', detail:'' },
+  pol: { name:'Politie Overlast per buurt',        peiljaar:'meest recent (auto-detect)', status:'loading', detail:'' },
 };
 
 // ═══════════════════════════════════════════════
@@ -251,12 +251,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // MAP
 // ═══════════════════════════════════════════════
 function initMap() {
-  map = L.map('map', { zoomControl:true });
+  map = L.map('map', { zoomControl:true, center:[52.079, 4.393], zoom:13 });
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     attribution:'© OpenStreetMap © CartoDB', maxZoom:19
   }).addTo(map);
-  // Always start on Leidschendam-Voorburg, regardless of API results
-  map.fitBounds([[52.030, 4.310], [52.130, 4.480]]);
+  // Force zoom after container is sized
+  setTimeout(() => map.setView([52.079, 4.393], 13), 100);
 }
 
 function renderGeoLayer() {
@@ -277,7 +277,11 @@ function renderGeoLayer() {
   }).addTo(map);
   // Zoom to actual buurtgrenzen bounds
   const bounds = geoLayer.getBounds();
-  if (bounds.isValid()) map.fitBounds(bounds, { padding:[20,20] });
+  if (bounds && bounds.isValid()) {
+    map.fitBounds(bounds, { padding:[20,20], maxZoom:14 });
+  } else {
+    map.setView([52.079, 4.393], 13);
+  }
 }
 
 // normalise to uppercase trimmed e.g. "BU05460000"
@@ -442,44 +446,49 @@ async function loadPolitie() {
   setSource('pol','loading','');
 
   // Build list of buurt codes for the filter
-  // We'll use a broader approach: fetch by gemeente name
-  const tryYears = ['2024JJ00','2023JJ00','2022JJ00'];
+  // Fetch without year filter, order by period desc, take most recent
+  try {
+    const url = `https://politieopendata.cbs.nl/ODataApi/odata/47022NED/TypedDataSet?` +
+      `%24filter=startswith(WijkenEnBuurten,'BU${GM_CODE}')` +
+      `&%24format=json` +
+      `&%24select=WijkenEnBuurten,Perioden,GeregistreerdeOverlast_1` +
+      `&%24orderby=Perioden%20desc` +
+      `&%24top=2000`;
 
-  for (const period of tryYears) {
-    try {
-      // Filter on buurtcodes starting with GM code
-      const url = `https://politieopendata.cbs.nl/ODataApi/odata/47022NED/TypedDataSet?` +
-        `%24filter=startswith(WijkenEnBuurten,'BU${GM_CODE}')` +
-        `%20and%20Perioden%20eq%20'${period}'` +
-        `&%24format=json` +
-        `&%24select=WijkenEnBuurten,GeregistreerdeOverlast_1` +
-        `&%24top=500`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const rows = data.value || [];
+    if (!rows.length) throw new Error('Geen data');
 
-      const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const rows = data.value || [];
-      if (!rows.length) continue;
+    // Find the most recent annual period (format JJ00 = jaarcijfer)
+    const annualPeriods = [...new Set(
+      rows.map(r => r.Perioden).filter(p => p && p.endsWith('JJ00'))
+    )].sort().reverse();
 
-      // Sum all overlast types per buurt
-      const tmp = {};
-      rows.forEach(r => {
-        const code = normCode(r.WijkenEnBuurten);
-        const v    = r.GeregistreerdeOverlast_1;
-        if (!code || v == null || Number(v) < 0) return;
-        tmp[code] = (tmp[code] || 0) + Number(v);
-      });
+    const latestPeriod = annualPeriods[0];
+    if (!latestPeriod) throw new Error('Geen jaarcijfers gevonden');
 
-      const n = Object.keys(tmp).length;
-      if (!n) continue;
+    // Aggregate all overlast types for that period per buurt
+    const tmp = {};
+    rows.filter(r => r.Perioden === latestPeriod).forEach(r => {
+      const code = normCode(r.WijkenEnBuurten);
+      const v    = r.GeregistreerdeOverlast_1;
+      if (!code || v == null || Number(v) < 0) return;
+      tmp[code] = (tmp[code] || 0) + Number(v);
+    });
 
-      Object.assign(politieData, tmp);
-      const year = period.slice(0,4);
-      setSource('pol','ok',`${n} buurten · overlast ${year}`);
-      updatePill('p-pol','ok',`✓ Politie ${year}`);
-      document.getElementById('b-overlast').disabled = false;
-      return;
-    } catch(e) { continue; }
+    const n = Object.keys(tmp).length;
+    if (!n) throw new Error('Geen buurtdata in ' + latestPeriod);
+
+    Object.assign(politieData, tmp);
+    const year = latestPeriod.slice(0,4);
+    setSource('pol','ok',`${n} buurten · overlast ${year} (meest recent)`);
+    updatePill('p-pol','ok',`✓ Politie ${year}`);
+    document.getElementById('b-overlast').disabled = false;
+    return;
+  } catch(e) {
+    console.warn('Politie auto-detect failed:', e);
   }
 
   setSource('pol','err','Endpoint niet bereikbaar');
@@ -564,16 +573,22 @@ function showInfo(code, naam) {
 // BUURT LIST
 // ═══════════════════════════════════════════════
 function renderBuurtList() {
-  // Collect all known codes from every data source
-  const codes = [
-    ...Object.keys(cbsData).map(normCode),
-    ...geojsonFeatures.map(f => normCode(f.properties.buurtcode)),
-    ...Object.keys(lbmData),
-    ...Object.keys(politieData),
-  ].filter(c => c && c.startsWith('BU' + GM_CODE));
-  const unique = [...new Set(codes)];
+  // Use cbsData keys directly (already normalized on load)
+  // Plus any extra codes from other sources
+  const cbsCodes = Object.keys(cbsData);
+  const geoCodes = geojsonFeatures.map(f => normCode(f.properties.buurtcode)).filter(Boolean);
+  const lbmCodes = Object.keys(lbmData);
+  const polCodes = Object.keys(politieData);
 
-  if (!unique.length) {
+  const allCodes = [...new Set([...cbsCodes, ...geoCodes, ...lbmCodes, ...polCodes])];
+
+  // Only show buurten (not gemeente/wijk level rows)
+  // Buurt codes start with BU, wijk with WK, gemeente with GM
+  const buurtCodes = allCodes.filter(c => c.startsWith('BU'));
+
+  console.log(`renderBuurtList: cbsCodes=${cbsCodes.length}, buurtCodes=${buurtCodes.length}, sample:`, cbsCodes.slice(0,3));
+
+  if (!buurtCodes.length) {
     document.getElementById('buurt-list').innerHTML =
       '<li style="padding:8px;font-size:11px;color:var(--text3)">Laden... (gegevens worden opgehaald)</li>';
     return;
@@ -595,7 +610,7 @@ function renderBuurtList() {
     return cbsVal(code, fieldMap[currentMode]) ?? 0;
   };
 
-  const sorted = unique.sort((a,b) => {
+  const sorted = buurtCodes.sort((a,b) => {
     const va = getSortVal(a), vb = getSortVal(b);
     return currentMode==='inkomen' ? va-vb : vb-va;
   });
@@ -671,7 +686,7 @@ function renderChart() {
     ...Object.keys(cbsData),
     ...Object.keys(lbmData),
     ...Object.keys(politieData),
-  ].filter((c,i,a) => a.indexOf(c)===i && c.startsWith('BU'+GM_CODE));
+  ].filter((c,i,a) => a.indexOf(c)===i && c.startsWith('BU'));
 
   let entries=[], label='';
 
