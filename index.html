@@ -190,18 +190,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 const GM_CODE   = '0546';
 const CBS_TABLE = '86165NED';  // KWB 2025 — meest recent
 
+// Leidschendam-Voorburg bounding box — always zoom here on load
+const LV_BOUNDS = [[52.030, 4.310], [52.130, 4.480]];
+
 // Known field name patterns per CBS table version
 // These are tried in order; first match wins
 const FIELD_CANDIDATES = {
-  inwoners:  ['AantalInwoners_5','AantalInwoners_6','AantalInwoners_7','Bevolking_1'],
+  inwoners:  ['AantalInwoners_5','AantalInwoners_6','AantalInwoners_7','Bevolking_1',
+              'TotaalInwoners_1'],
   inkomen:   ['GemiddeldInkomenPerInwoner_66','GemiddeldInkomenPerInwoner_67',
-              'GemiddeldInkomenPerInwoner_68','GemiddeldPersoonlijkInkomenX1000_66',
-              'GemiddeldPersoonlijkInkomenX1000_67','GemiddeldPersoonlijkInkomen_66'],
+              'GemiddeldInkomenPerInwoner_68','GemiddeldInkomenPerInwoner_69',
+              'GemiddeldPersoonlijkInkomenX1000_66','GemiddeldPersoonlijkInkomenX1000_67',
+              'GemiddeldPersoonlijkInkomenX1000_68','GemiddeldPersoonlijkInkomen_66'],
   uitkering: ['PersonenMetEenUitkering_79','PersonenMetEenUitkering_80',
-              'PersonenMetEenUitkering_81','TotaalPersonenMetUitkering_79'],
+              'PersonenMetEenUitkering_81','PersonenMetEenUitkering_82',
+              'TotaalPersonenMetUitkering_79','TotaalPersonenMetUitkering_80'],
   huurcorp:  ['HuurwoningenInBezitVanEenWoningco_197','HuurwoningenInBezitVanEenWoningco_198',
-              'HuurwoningenInBezitVanEenWoningco_199','WoningenInBezitVanWoningcorporatie_197'],
-  armoede:   ['PersonenInArmoede_83','PersonenInArmoede_84',
+              'HuurwoningenInBezitVanEenWoningco_199','HuurwoningenInBezitVanEenWoningco_200',
+              'WoningenInBezitVanWoningcorporatie_197','CorporatieHuurwoningen_197'],
+  armoede:   ['PersonenInArmoede_83','PersonenInArmoede_84','PersonenInArmoede_85',
               'PersonenMetLaagsteInkomen_70','k_40PersonenMetLaagsteInkomen_70'],
 };
 
@@ -244,10 +251,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // MAP
 // ═══════════════════════════════════════════════
 function initMap() {
-  map = L.map('map', { zoomControl:true }).setView([52.079, 4.393], 13);
+  map = L.map('map', { zoomControl:true });
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     attribution:'© OpenStreetMap © CartoDB', maxZoom:19
   }).addTo(map);
+  // Always start on Leidschendam-Voorburg, regardless of API results
+  map.fitBounds([[52.030, 4.310], [52.130, 4.480]]);
 }
 
 function renderGeoLayer() {
@@ -266,7 +275,9 @@ function renderGeoLayer() {
       layer.on('mouseout',  () => layer.setStyle({ fillOpacity:0.68, weight:1.5 }));
     }
   }).addTo(map);
-  try { map.fitBounds(geoLayer.getBounds(), { padding:[24,24] }); } catch(e){}
+  // Zoom to actual buurtgrenzen bounds
+  const bounds = geoLayer.getBounds();
+  if (bounds.isValid()) map.fitBounds(bounds, { padding:[20,20] });
 }
 
 // normalise to uppercase trimmed e.g. "BU05460000"
@@ -288,10 +299,24 @@ async function loadCBS() {
     if (!sampleRow) throw new Error('Geen data gevonden voor gemeente ' + GM_CODE);
 
     const availableKeys = Object.keys(sampleRow);
+    console.log('CBS available fields:', availableKeys.join(', '));
 
     // 2. Resolve each field by trying candidates
     for (const [field, candidates] of Object.entries(FIELD_CANDIDATES)) {
       cbsFields[field] = candidates.find(c => availableKeys.includes(c)) || null;
+      if (!cbsFields[field]) {
+        // Broader fallback: partial match on key prefix
+        const prefixes = {
+          inwoners:  ['AantalInwoners','TotaalInwoners','Bevolking'],
+          inkomen:   ['GemiddeldInkomen','GemiddeldPersoonlijk'],
+          uitkering: ['PersonenMetEenUitkering','TotaalPersonenMetUitkering','PersonenUitkering'],
+          huurcorp:  ['HuurwoningenInBezit','WoningenInBezitVan','CorporatieHuur'],
+          armoede:   ['PersonenInArmoede','PersonenMetLaagste','k_40Personen'],
+        };
+        const pfx = prefixes[field] || [];
+        cbsFields[field] = availableKeys.find(k => pfx.some(p => k.startsWith(p))) || null;
+      }
+      console.log(`CBS field [${field}]:`, cbsFields[field] || 'NOT FOUND');
     }
 
     // 3. Fetch all buurten
